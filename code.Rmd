@@ -1,0 +1,253 @@
+```{r}
+library(ggplot2)
+library(dplyr)
+library(corrgram)
+library(FactoMineR)
+library(factoextra)
+library(gridExtra)
+```
+
+```{r}
+data <- read.csv('BlackFriday.csv')
+str(data)
+summary(data)
+head(data)
+```
+Se identifican las siguientes variables:
+User_ID: Identificador del comprador.
+Product_ID: Identificador del producto
+Gender: Sexo del comprador.
+Age: Rango de edad del comprador.
+Occupation: Ocupación del comprador.
+City_Category: Ciudad del comprador.
+Stay_In_Current_City_Years: Numero de años de residencia en la ciudad del comprador.
+Marital_Status: Estado civil.
+Product_Category_1: Categoria del producto comprado.
+Product_Category_2: Otra categoria del producto comprado.
+Product_Category_3: Otra categoria del producto comprado.
+Purchase: Valor de la compra.
+
+#Verificamos datos nulos
+```{r}
+colSums(is.na(data))
+```
+#En las columnas Product_Category_2 y Product_Category_3 se encuentran una gran cantidad de valores nulos, esto se debe a que los productos no fueron seleccionados ya que no aplicaban dentro de otras categorias.
+
+#Los valores nulos de las columnas mencionadas serán reemplazados por ceros
+```{r}
+data[is.na(data)]<-0
+colSums(is.na(data))
+```
+#y datos vacios, no se encuentran datos vacios para las columnas
+```{r}
+colSums(data=="")
+```
+#Ahora, realizamos una vista general de las variables encontrando que en su gran mayoría todas son categoricas excepto la variable Purchase
+```{r}
+# ¿Para qué variables tendría sentido un proceso de discretización?
+apply(data,2, function(x) length(unique(x)))
+```
+```{r}
+# Discretizamos las variables con pocas clases
+cols<-c("Gender","Age","Occupation","City_Category","Stay_In_Current_City_Years","Marital_Status","Product_Category_1","Product_Category_2","Product_Category_3")
+for (i in cols){
+  data[,i] <- as.factor(data[,i])
+}
+summary(data)
+```
+#Para la variable continua Purchase, realizaremos verificación de outliers
+```{r}
+boxplot.stats(data$Purchase)$out
+boxplot(data$Purchase)
+```
+
+
+
+#Ahora analizaremos como estan conformadas las diferentes dimensiones del dataset, empezaremos graficando la cantidad de personas por genero que realizaron compras en el almacen. En la grafica se evidencia que existe una mayoria notable entre la distribución de compradores de sexo masculino a las de sexo femenino.
+```{r}
+data_genero = data %>%
+                  dplyr::select(User_ID, Gender) %>%
+                  group_by(User_ID) %>%
+                  distinct()
+
+ggplot(data = data_genero) +
+  geom_bar(mapping = aes(x = Gender, y = ..count.., fill = Gender)) +
+  labs(title = 'Consumidores por Genero')
+```
+#Dada la diferencia de compradores, sería interesante verificar la medida de tendencia central en relación al promedio de compra por sexo. Como se puede ver en la grafica, la diferencia entre promedios de compra por genero no es tan alta como la diferencia entre las cantidades de compradores por sexo, lo que indica que el evento llama mas la atención a hombres que a mujeres, esta información vendría bien para definir una buena estrategia de marketing orientada al publico femenino.
+```{r}
+compras_x_usuario = data %>%
+                      dplyr::select(User_ID, Gender, Purchase) %>%
+                      group_by(User_ID,Gender) %>%
+                      summarise(Total_compra = sum(Purchase),
+                        Cantidad=n())
+
+promedio_x_sexo = compras_x_usuario %>%
+                    group_by(Gender) %>%
+                    summarise(Promedio=sum(as.numeric(Total_compra))/sum(as.numeric(Cantidad)))
+
+ggplot(data = promedio_x_sexo) +
+  geom_bar(mapping = aes(x = Gender, y = Promedio, fill = Gender), stat = 'identity') +
+  labs(title = 'Promedio de compra por Genero')
+```
+#Continuamos el análisis por la columna de edad, vamos a realizar conteo por cada categoria de edad:
+```{r}
+edad_compradores = data %>%
+                    dplyr::select(User_ID, Age) %>%
+                    distinct() %>%
+                    count(Age)
+
+ggplot(data = edad_compradores) + 
+  geom_bar(stat = 'identity', mapping = aes(x = Age, y = n, fill = Age)) +
+  labs(title = 'Edad compradores')
+```
+#Se observa que la mayor población de compradores se encuentra ubicada entre los 18 y los 45 años de edad.Ahora analizamos la columna ocupaciones de los clientes, encontrando que en promedio, ningún cargo tiene a gastar más por compra.
+```{r}
+ocupacion_compradores = data %>%
+                    dplyr::select(User_ID, Occupation) %>%
+                    distinct() %>%
+                    count(Occupation)
+
+g1<-ggplot(data = ocupacion_compradores) + 
+  geom_bar(stat = 'identity', mapping = aes(x = Occupation, y = n, fill = Occupation)) +
+  labs(title = 'Ocupación compradores') + theme(legend.position = "none") 
+
+compras_x_ocupacion = data %>%
+                  group_by(Occupation) %>%
+                  summarise(Compras = sum(Purchase))
+
+g2<-ggplot(data = compras_x_ocupacion, aes(x = Occupation, y = Compras, fill = Occupation)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Total compras por ocupación', y = '$', x = 'Ocupación') + theme(legend.position = "none") 
+
+compras_x_ocupacion = data %>%
+                      dplyr::select(User_ID, Occupation, Purchase) %>%
+                      group_by(User_ID,Occupation) %>%
+                      summarise(Total_compra = sum(Purchase),
+                        Cantidad=n())
+
+promedio_x_ocupacion = compras_x_ocupacion %>%
+                    group_by(Occupation) %>%
+                    summarise(Promedio=sum(as.numeric(Total_compra))/sum(as.numeric(Cantidad)))
+
+g3<-ggplot(data = promedio_x_ocupacion) +
+  geom_bar(mapping = aes(x = Occupation, y = Promedio, fill = Occupation), stat = 'identity') +
+  labs(title = 'Promedio de Compra por Ocupación') + theme(legend.position = "none") 
+
+grid.arrange(g1,g2,g3,ncol=1)
+```
+
+#Ahora observemos de donde vienen los compradores, vemos que principalmente vienen de las ciudades de categoria C.
+```{r}
+ciudad_compradores =  data %>%
+                        dplyr::select(User_ID, City_Category) %>%
+                        distinct()
+
+ggplot(data = ciudad_compradores) + 
+  geom_bar(mapping = aes(x = City_Category, y = ..count.., fill = City_Category)) +
+  labs(title = 'Tipo ciudad compradores')
+```
+#Ahora veamos las compras por ciudad, sorprendentemente encontramos que los mayores compradores (en cantidad de dinero) no son de la ciudad con mayor volumen de compradores (C).
+```{r}
+compras_x_ciudad = data %>%
+                  group_by(City_Category) %>%
+                  summarise(Compras = sum(Purchase))
+
+ggplot(data = compras_x_ciudad, aes(x = City_Category, y = Compras, fill = City_Category)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Total compras por ciudad', y = '$', x = 'Tipo de ciudad')
+```
+#Ahora examinaremos los compradores por tiempo de residencia
+```{r}
+estancia_compradores =  data %>%
+                        dplyr::select(User_ID, Stay_In_Current_City_Years) %>%
+                        distinct()
+
+ggplot(data = estancia_compradores) + 
+  geom_bar(mapping = aes(x = Stay_In_Current_City_Years, y = ..count.., fill = Stay_In_Current_City_Years)) +
+  labs(title = 'Años de estancia de compradores')
+```
+#Ahora veamos las compras por años de estancia.
+```{r}
+compras_x_estancia = data %>%
+                  group_by(Stay_In_Current_City_Years) %>%
+                  summarise(Compras = sum(Purchase))
+
+ggplot(data = compras_x_estancia, aes(x = Stay_In_Current_City_Years, y = Compras, fill = Stay_In_Current_City_Years)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Total compras por estancia', y = '$', x = 'Años de Estancia en ciudad')
+```
+
+#Ahora examinaremos los compradores por estado civil
+```{r}
+est_civil_compradores =  data %>%
+                        dplyr::select(User_ID, Marital_Status) %>%
+                        distinct()
+
+ggplot(data = est_civil_compradores) + 
+  geom_bar(mapping = aes(x = Marital_Status, y = ..count.., fill = Marital_Status)) +
+  labs(title = 'Estado Civil de compradores')
+```
+#Ahora veamos las compras por estado civil.
+```{r}
+compras_x_est_civ = data %>%
+                  group_by(Marital_Status) %>%
+                  summarise(Compras = sum(as.numeric(Purchase)))
+
+ggplot(data = compras_x_est_civ, aes(x = Marital_Status, y = Compras, fill = Marital_Status)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Total compras por estado civil', y = '$', x = 'Estado Civil')
+```
+#Se seleccionan los grupos de variables que pueden ser intersantes dentro del análisis:
+```{r}
+data.hombre <- data[data$Gender == "M",]
+data.mujer <- data[data$Gender == "F",]
+data.marital_0 <- data[data$Marital_Status == "0",]
+data.marital_1 <- data[data$Marital_Status == "1",]
+data.age_17 <- data[data$Age == "0-17",]
+data.age_25 <- data[data$Age == "18-25",]
+data.age_35 <- data[data$Age == "26-35",]
+data.age_45 <- data[data$Age == "36-45",]
+data.age_50 <- data[data$Age == "46-50",]
+data.age_55 <- data[data$Age == "51-55",]
+data.age_55plus <- data[data$Age == "55+",]
+```
+
+#Comprobación de normalidad y homogeneidad de la varianza:
+```{r}
+#install.packages("nortest")
+library(nortest)
+alpha = 0.05
+p_val = ad.test(data$Purchase)$p.value
+if (p_val < alpha) {
+  cat("La variable Purchase no sigue una distribución normal. \n")
+}else{  
+  cat("La variable Purchase sigue una distribución normal. \n")
+}
+cat("P-value: ")
+cat(p_val)
+```
+```{r}
+fligner.test(Purchase ~ Marital_Status, data = data)
+```
+
+```{r}
+fligner.test(Purchase ~ Age, data = data)
+```
+
+```{r}
+fligner.test(Purchase ~ Gender, data = data)
+```
+
+#Validar hipotesis de que los hombres compran, en promedio, mas que las mujeres
+```{r}
+data.hombre.compras <- data.hombre$Purchase
+data.mujer.compras <- data.mujer$Purchase
+t.test(data.hombre.compras, data.mujer.compras,alternative = "less")
+```
+
+#Exportado final del dataset limpio
+```{r}
+write.csv(data, "BlackFriday_clean.csv")
+```
+
